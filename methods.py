@@ -59,19 +59,20 @@ def netCRE(lwds, swds, times=False, cc=None):
     else:
         return K_trop
 
-    def kernel(allsw, alllw):
-        area_ep = alllw.cldarea_cldtyp_mon.mean("lon")
 
-        RclrLW_ep = alllw.toa_lw_clr_mon.mean("lon")
-        RovcLW_ep = alllw.toa_lw_cldtyp_mon.mean("lon")
-        lwK_ep = (RclrLW_ep - RovcLW_ep) / 100
+def kernel(allsw, alllw):
+    """Calculates a kernel"""
 
-        RclrSW_ep = allsw.toa_sw_clr_mon.mean("lon")
-        RovcSW_ep = allsw.toa_sw_cldtyp_mon.mean("lon")
-        swK_ep = (RclrSW_ep - RovcSW_ep) / 100
+    RclrLW_ep = alllw.toa_lw_clr_mon.mean("lon")
+    RovcLW_ep = alllw.toa_lw_cldtyp_mon.mean("lon")
+    lwK_ep = (RclrLW_ep - RovcLW_ep) / 100
 
-        K_ep = lwK_ep + swK_ep
-        return K_ep
+    RclrSW_ep = allsw.toa_sw_clr_mon.mean("lon")
+    RovcSW_ep = allsw.toa_sw_cldtyp_mon.mean("lon")
+    swK_ep = (RclrSW_ep - RovcSW_ep) / 100
+
+    K_ep = lwK_ep + swK_ep
+    return K_ep
 
 
 class Feedbacks:
@@ -88,8 +89,12 @@ class Feedbacks:
         self._cc_ast = self.cc_anom - (self.area / self._cTot) * self._cTot_anom
         # aca area .sel(press=[4, 5, 6])
 
+    def __repr__(self):
+        return r"$\lambda$"
+
     def ctp(self):
-        """Computes total feedback in CTP-tau object.
+        """Computes total feedback in CTP-tau object. Returns xarray DataArray.
+        Still doesnt work only for hc
 
         Returns:
         -------
@@ -100,11 +105,14 @@ class Feedbacks:
         R = self.k.mean("time") * self.cc_anom
         R_mean = R.mean(["lat"])  # weighted(weights=weights).
 
-        feed = np.zeros([7, 6])
-        feed_st = np.zeros([7, 6])
+        optdim = [int(i) for i in R_mean.opt.data.tolist()]
+        pressdim = [int(i) for i in R_mean.press.data.tolist()]
 
-        for od in [0, 1, 2, 3, 4, 5]:
-            for p in [0, 1, 2, 3, 4, 5, 6]:
+        feed = np.zeros([len(pressdim), len(optdim)])
+        feed_st = np.zeros([len(pressdim), len(optdim)])
+
+        for od in optdim:
+            for p in pressdim:
                 bints = R_mean.sel(press=p, opt=od)
                 net_regress = stats.linregress(self.gmst, bints)
                 feed[p, od] = net_regress.slope
@@ -118,7 +126,7 @@ class Feedbacks:
             },
         )
 
-        feed_std = xa.DataArray(
+        feed_stderr = xa.DataArray(
             feed_st,
             coords={
                 "press": R_mean.press,
@@ -126,16 +134,36 @@ class Feedbacks:
             },
         )
 
-        return feed_r, feed_std
+        total_feedback = feed_r.sum(["press", "opt"]).data
+        ci = self.tcrit * feed_stderr.sum(["press", "opt"]).data
 
-    def total(self):
-        total_feedback = self.sum(["press", "opt"])
-        ci = self.sum(["press", "opt"])
+        print(f"Total feedback = {total_feedback} +- {ci}")
+        return feed_r, feed_stderr
+
+    def total(self, ctpobj):
+        """Calculates total feedback of a CTP-tau object with its confidence interval.
+
+        Parameters:
+        ----------
+        crp: xr.DataArray
+            ctp feedback, with dimentions "press" and "opt"
+        Returns:
+        -------
+        total_feedback, ci: float, float
+            Total feedback wit CI = t_student * std error
+        """
+        total_feedback = ctpobj[0].sum(["press", "opt"]).data
+        ci = self.tcrit * ctpobj[1].sum(["press", "opt"]).data
+        print(f"Total feedback = {total_feedback} +- {ci}")
         return total_feedback, ci
 
     # Decompositions
     # Aca necesito solo high clouds
     def amount(self, high_clouds=True):
+
+        hc = [4, 5, 6]
+        self.area = self.area.sel(press=hc)
+        self.k = self.k.sel(press=hc)
 
         if high_clouds:
             hc = [4, 5, 6]
@@ -147,37 +175,37 @@ class Feedbacks:
         )
         Ramt_anom = K_0_hc * self._cTot_anom
         feed_amount = stats.linregress(self.gmst, Ramt_anom.mean("lat"))
-        return feed_amount.slope, feed_amount.stderr
+        return feed_amount.slope, self.tcrit * feed_amount.stderr
 
-    def opticaldepth(self):
+    def altitude(self):
         # aca estaban cTot, cc_anom, cTot_anom, c_ast con press para hc
         ci_Tot = (self.area.sel(press=[4, 5, 6]) / self._cTot).sum("press")
         Ktau = self.k.sel(press=[4, 5, 6]) * ci_Tot.sum("opt")
 
         K_prima = (Ktau * ci_Tot).sum("opt")
 
-        casi_R = K_prima * self.cc_ast.sum("opt")
+        casi_R = K_prima * self._cc_ast.sum("opt")
 
         R_altitude = casi_R.sum("press")
 
         feedback_i = stats.linregress(self.gmst, R_altitude.mean("lat"))
 
-        return feedback_i.slope, feedback_i.stderr
+        return feedback_i.slope, self.tcrit * feedback_i.stderr
 
-    def altitude(self):
+    def opticaldepth(self):
         # aca estaban cTot, cc_anom, cTot_anom, c_ast con press para hc
         ci_Tot = (self.area.sel(press=[4, 5, 6]) / self._cTot).sum("opt")
         Ktau = self.k.sel(press=[4, 5, 6]) * ci_Tot.sum("press")
 
         K_prima = (Ktau * ci_Tot).sum("press")
 
-        casi_R = K_prima * self.cc_ast.sum("press")
+        casi_R = K_prima * self._cc_ast.sum("press")
 
         R_altitude = casi_R.sum("opt")
 
         feedback_i = stats.linregress(self.gmst, R_altitude.mean("lat"))
 
-        return feedback_i.slope, feedback_i.stderr
+        return feedback_i.slope, self.tcrit * feedback_i.stderr
 
     def res(self):
         ct_Tot = (self.area.sel(press=[4, 5, 6]) / self._cTot).sum("press")
@@ -190,10 +218,10 @@ class Feedbacks:
 
         k_R = self.k - k_prima_press - k_prima_tau
 
-        R_res = (k_R * self.cc_ast).sum(["press", "opt"])
+        R_res = (k_R * self._cc_ast).sum(["press", "opt"])
 
         feed_res = stats.linregress(self.gmst, R_res.mean("lat"))
-        return feed_res
+        return feed_res.slope, self.tcrit * feed_res.stderr
 
 
 def correlations(sst, var, plot=True):
