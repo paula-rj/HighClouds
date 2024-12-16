@@ -224,6 +224,129 @@ class Feedbacks:
         return feed_res.slope, self.tcrit * feed_res.stderr
 
 
+def plot(
+    hclw,
+    hcsw,
+    hcnet,
+    area="ITCZ",
+    totallw=(-0.347357, 0.3275278),
+    totalsw=(0.43392, 0.31945),
+    totalnet=(0.0519, 0.0642),
+):
+    """Plots bar plot given the LW, Sw and Net feedback objects.
+
+    Parameters:
+    ----------
+    sw_obj: Feedback
+        Short-wave feedback object.
+    lw_obj: Feedback
+        Long-wave feedback object.
+    net_obj: Feedback
+       Net feedback object.
+
+    Returns:
+    -------
+    None. Or pandas summary.
+    """
+
+    decompos = ("Total", "Amount", "Altitude", "Optical Depth", "Residual")
+
+    sdc = {
+        # "lw total": hclw.total(hclw.ctp()),
+        "lw": [
+            totallw,
+            hclw.amount(),
+            hclw.altitude(),
+            hclw.opticaldepth(),
+            hclw.res(),
+        ],
+        # "sw total": hcsw.total(),
+        "sw": [
+            totalsw,
+            hcsw.amount(),
+            hcsw.altitude(),
+            hcsw.opticaldepth(),
+            hcsw.res(),
+        ],
+        # "net total": hcnet.total(),
+        "net": [
+            totalnet,
+            hcnet.amount(),
+            hcnet.altitude(),
+            hcnet.opticaldepth(),
+            hcnet.res(),
+        ],
+    }
+
+    feeds = {
+        "LW": [sdc["lw"][i][0] for i in range(5)],
+        "Net": [sdc["net"][i][0] for i in range(5)],
+        "SW": [sdc["sw"][i][0] for i in range(5)],
+    }
+
+    ci_upper = {
+        "LW": feeds["LW"] + np.array([sdc["lw"][i][1] for i in range(5)]),
+        "Net": feeds["Net"] + np.array([sdc["net"][i][1] for i in range(5)]),
+        "SW": feeds["SW"] + np.array([sdc["sw"][i][1] for i in range(5)]),
+    }
+    ci_lower = {
+        "LW": feeds["LW"] - np.array([sdc["lw"][i][1] for i in range(5)]),
+        "Net": feeds["Net"] - np.array([sdc["net"][i][1] for i in range(5)]),
+        "SW": feeds["SW"] - np.array([sdc["sw"][i][1] for i in range(5)]),
+    }
+
+    colors = {"LW": "red", "Net": "black", "SW": "blue"}
+
+    x = np.arange(len(decompos))  # the label locations
+    width = 0.25  # the width of the bars
+    multiplier = 0
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    for attribute, measurement in feeds.items():
+        offset = width * multiplier
+
+        # Calculate asymmetric error bars
+        lower_errors = [m - ci for m, ci in zip(measurement, ci_lower[attribute])]
+        upper_errors = [ci - m for m, ci in zip(measurement, ci_upper[attribute])]
+        yerr_values = (lower_errors, upper_errors)
+
+        rects = ax.bar(
+            x + offset,
+            measurement,
+            width,
+            label=attribute,
+            yerr=yerr_values,
+            capsize=5,
+            color=colors[attribute],
+        )
+
+        for i, rect in enumerate(rects):
+            lower_bound = ci_lower[attribute][i]
+            upper_bound = ci_upper[attribute][i]
+
+            if (
+                lower_bound <= 0 <= upper_bound
+            ):  # Not significant # Only apply to LW bars
+                rect.set_facecolor("none")  # Remove filling for the first bar
+                rect.set_edgecolor("red")
+
+        ax.bar_label(rects, labels=[f"{value:.2f}" for value in measurement], padding=3)
+        multiplier += 1
+
+    # Add some text for labels, title and custom x-axis tick labels, etc.
+    ax.set_ylabel(r"Feedbacks ($Wm^{-2}K^{-1}$)")
+    ax.set_title(f"{area} high cloud feedbacks")
+    ax.legend(loc="upper right")
+    ax.set_xticks(x + width)
+    ax.set_xticklabels(["Total", "Amount", "Altitude", "Optical Depth", "Residual"])
+    ax.axhline(0, color="black", linewidth=1)
+
+    plt.show()
+
+    return None
+
+
 def correlations(sst, var, plot=True):
     """Computes correlations for time series and plots both.
     lat, lon y times must be selected
