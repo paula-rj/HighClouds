@@ -345,6 +345,8 @@ def plot(
     ax.set_xticks(x + width)
     ax.set_xticklabels(["Total", "Amount", "Altitude", "Optical Depth", "Residual"])
     ax.axhline(0, color="black", linewidth=1)
+    if "ylim" in kwargs:
+        ax.set_ylim(kwargs["ylim"])
 
     plt.show()
 
@@ -398,7 +400,6 @@ def correlations(sst, var, plot=True):
         )
         ax1.set_ylabel("OD")
         fig.tight_layout()  # otherwise the right y-label is slightly clipped
-
         ax1.xaxis.set_major_locator(mdates.YearLocator(base=1))
         ax1.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
         ax1.grid(visible=True, axis="x")
