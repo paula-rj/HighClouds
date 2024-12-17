@@ -11,6 +11,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
+import pandas as pd
+
 from scipy import stats
 
 from scipy.stats import t
@@ -232,6 +234,7 @@ def plot(
     totallw=(-0.347357, 0.3275278),
     totalsw=(0.43392, 0.31945),
     totalnet=(0.0519, 0.0642),
+    **kwargs,
 ):
     """Plots bar plot given the LW, Sw and Net feedback objects.
 
@@ -319,6 +322,7 @@ def plot(
             yerr=yerr_values,
             capsize=5,
             color=colors[attribute],
+            **kwargs,
         )
 
         for i, rect in enumerate(rects):
@@ -402,3 +406,48 @@ def correlations(sst, var, plot=True):
         plt.show()
 
     return xa.corr(sst, odweight_itcz_anom)
+
+
+def summary(hclw, hcsw, hcnet, totallw, totalsw, totalnet):
+    rows = ["Total", "Amount", "Altitude", "Optical Depth", "Residual"]
+
+    sdc = {
+        # "lw total": hclw.total(hclw.ctp()),
+        "lw": [
+            totallw,
+            hclw.amount(),
+            hclw.altitude(),
+            hclw.opticaldepth(),
+            hclw.res(),
+        ],
+        # "sw total": hcsw.total(),
+        "sw": [
+            totalsw,
+            hcsw.amount(),
+            hcsw.altitude(),
+            hcsw.opticaldepth(),
+            hcsw.res(),
+        ],
+        # "net total": hcnet.total(),
+        "net": [
+            totalnet,
+            hcnet.amount(),
+            hcnet.altitude(),
+            hcnet.opticaldepth(),
+            hcnet.res(),
+        ],
+    }
+
+    sumdf = pd.DataFrame.from_dict(sdc, orient="columns").rename(
+        index={0: rows[0], 1: rows[1], 2: rows[2], 3: rows[3], 4: rows[4]}
+    )
+    sumdf
+    for col in sumdf.columns:
+        sumdf[[f"{col}_mean", f"{col}_ci"]] = sumdf[col].apply(pd.Series)
+
+    sumdf.drop(columns=["lw", "sw", "net"], inplace=True)
+    sumdf.columns
+    for col in sumdf.columns:
+        sumdf[col] = sumdf[col].map(lambda x: f"{x:.4f}")
+
+    return sumdf
