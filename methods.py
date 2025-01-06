@@ -17,6 +17,8 @@ from scipy import stats
 
 from scipy.stats import t
 
+import statsmodels.api as sm
+
 import xarray as xa
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -63,18 +65,18 @@ def netCRE(lwds, swds, times=False, cc=None):
 
 
 def kernel(allsw, alllw):
-    """Calculates a kernel"""
+    """Calculates a net kernel"""
 
-    RclrLW_ep = alllw.toa_lw_clr_mon.mean("lon")
-    RovcLW_ep = alllw.toa_lw_cldtyp_mon.mean("lon")
-    lwK_ep = (RclrLW_ep - RovcLW_ep) / 100
+    RclrLW = alllw.toa_lw_clr_mon.mean("lon")
+    RovcLW = alllw.toa_lw_cldtyp_mon.mean("lon")
+    lwK = (RclrLW - RovcLW) / 100
 
-    RclrSW_ep = allsw.toa_sw_clr_mon.mean("lon")
-    RovcSW_ep = allsw.toa_sw_cldtyp_mon.mean("lon")
-    swK_ep = (RclrSW_ep - RovcSW_ep) / 100
+    RclrSW = allsw.toa_sw_clr_mon.mean("lon")
+    RovcSW = allsw.toa_sw_cldtyp_mon.mean("lon")
+    swK = (RclrSW - RovcSW) / 100
 
-    K_ep = lwK_ep + swK_ep
-    return K_ep
+    K = lwK + swK
+    return K
 
 
 class Feedbacks:
@@ -119,6 +121,10 @@ class Feedbacks:
                 net_regress = stats.linregress(self.gmst, bints)
                 feed[p, od] = net_regress.slope
                 feed_st[p, od] = net_regress.stderr
+
+                regress = sm.OLS(endog=bints, exog=Xaod).fit()
+                feed[p, od] = regress.params[0]
+                feed_st[p, od] = regress.bse[0]
 
         feed_r = xa.DataArray(
             feed,
@@ -246,6 +252,11 @@ def plot(
         Long-wave feedback object.
     net_obj: Feedback
        Net feedback object.
+    area: str
+        Area name
+    totallw: tuple
+        Total
+
 
     Returns:
     -------
@@ -322,7 +333,6 @@ def plot(
             yerr=yerr_values,
             capsize=5,
             color=colors[attribute],
-            **kwargs,
         )
 
         for i, rect in enumerate(rects):
@@ -345,7 +355,8 @@ def plot(
     ax.set_xticks(x + width)
     ax.set_xticklabels(["Total", "Amount", "Altitude", "Optical Depth", "Residual"])
     ax.axhline(0, color="black", linewidth=1)
-    if "ylim" in kwargs:
+    ylim = kwargs.pop("ylim", None)
+    if ylim:
         ax.set_ylim(kwargs["ylim"])
 
     plt.show()
@@ -410,6 +421,19 @@ def correlations(sst, var, plot=True):
 
 
 def summary(hclw, hcsw, hcnet, totallw, totalsw, totalnet):
+    """
+    Parameters:
+    ----------
+    hclw:
+    hcsw:
+    hcnet:
+    totallw: tuple
+        Total lw feedback, std error
+    totalsw: tuple
+        Total sw feedback, std error
+    totalnet: tuple
+        Total net feedback, std error
+    """
     rows = ["Total", "Amount", "Altitude", "Optical Depth", "Residual"]
 
     sdc = {
