@@ -80,13 +80,19 @@ def kernel(allsw, alllw):
 
 
 class Feedbacks:
+    """
+    Creates feedback object
+    Params:
+    ------
+    gmst: list or np.array
+        exog variable in regress"""
 
-    tcrit = t.ppf(0.975, df=222 - 1)
+    tcrit = t.ppf(0.975, df=222 - 2)
 
     def __init__(self, area, k, gmst):
         self.area = area
         self.k = k
-        self.gmst = gmst
+        self.gmst = gmst.astype(np.float32)
         self.cc_anom = anomaly(self.area)
         self._cTot = self.area.sum(["press", "opt"])
         self._cTot_anom = self.cc_anom.sum(["press", "opt"])
@@ -119,10 +125,9 @@ class Feedbacks:
             for p in pressdim:
                 bints = R_mean.sel(press=p, opt=od)
                 net_regress = stats.linregress(self.gmst, bints)
-                feed[p, od] = net_regress.slope
-                feed_st[p, od] = net_regress.stderr
-
-                regress = sm.OLS(endog=bints, exog=Xaod).fit()
+                # feed[p, od] = net_regress.slope
+                # feed_st[p, od] = net_regress.stderr
+                regress = sm.OLS(endog=bints.data, exog=self.gmst).fit()
                 feed[p, od] = regress.params[0]
                 feed_st[p, od] = regress.bse[0]
 
@@ -153,7 +158,7 @@ class Feedbacks:
 
         Parameters:
         ----------
-        crp: xr.DataArray
+        ctp: xr.DataArray
             ctp feedback, with dimentions "press" and "opt"
         Returns:
         -------
@@ -169,21 +174,23 @@ class Feedbacks:
     # Aca necesito solo high clouds
     def amount(self, high_clouds=True):
 
-        hc = [4, 5, 6]
-        self.area = self.area.sel(press=hc)
-        self.k = self.k.sel(press=hc)
-
         if high_clouds:
             hc = [4, 5, 6]
         else:
             hc = []
 
-        K_0_hc = (((self.area.sel(press=hc) / self._cTot)) * self.k.sel(press=hc)).sum(
-            ["opt", "press"]
-        )
+        self.area = self.area.sel(press=hc)
+        self.k = self.k.sel(press=hc)
+
+        K_0_hc = (((self.area / self._cTot)) * self.k).sum(["opt", "press"])
         Ramt_anom = K_0_hc * self._cTot_anom
-        feed_amount = stats.linregress(self.gmst, Ramt_anom.mean("lat"))
-        return feed_amount.slope, self.tcrit * feed_amount.stderr
+        y = Ramt_anom.mean("lat").data
+        # feed_amount = stats.linregress(self.gmst, Ramt_anom.mean("lat"))
+        feed_amount = sm.OLS(endog=y, exog=self.gmst).fit()
+        return (
+            feed_amount.params[0],
+            self.tcrit * feed_amount.bse[0],
+        )  # feed_amount.slope, self.tcrit * feed_amount.stderr
 
     def altitude(self):
         # aca estaban cTot, cc_anom, cTot_anom, c_ast con press para hc
@@ -196,9 +203,11 @@ class Feedbacks:
 
         R_altitude = casi_R.sum("press")
 
-        feedback_i = stats.linregress(self.gmst, R_altitude.mean("lat"))
+        feedback_i = sm.OLS(
+            endog=R_altitude.mean("lat").data, exog=self.gmst
+        ).fit()  # stats.linregress(self.gmst, R_altitude.mean("lat"))
 
-        return feedback_i.slope, self.tcrit * feedback_i.stderr
+        return feedback_i.params[0], self.tcrit * feedback_i.bse[0]
 
     def opticaldepth(self):
         # aca estaban cTot, cc_anom, cTot_anom, c_ast con press para hc
@@ -211,9 +220,11 @@ class Feedbacks:
 
         R_altitude = casi_R.sum("opt")
 
-        feedback_i = stats.linregress(self.gmst, R_altitude.mean("lat"))
+        feedback_i = sm.OLS(
+            endog=R_altitude.mean("lat").data, exog=self.gmst
+        ).fit()  # stats.linregress(self.gmst, R_altitude.mean("lat"))
 
-        return feedback_i.slope, self.tcrit * feedback_i.stderr
+        return feedback_i.params[0], self.tcrit * feedback_i.bse[0]
 
     def res(self):
         ct_Tot = (self.area.sel(press=[4, 5, 6]) / self._cTot).sum("press")
@@ -228,8 +239,10 @@ class Feedbacks:
 
         R_res = (k_R * self._cc_ast).sum(["press", "opt"])
 
-        feed_res = stats.linregress(self.gmst, R_res.mean("lat"))
-        return feed_res.slope, self.tcrit * feed_res.stderr
+        feed_res = sm.OLS(
+            endog=R_res.mean("lat").data, exog=self.gmst
+        ).fit()  # stats.linregress(self.gmst, R_res.mean("lat"))
+        return feed_res.params[0], self.tcrit * feed_res.bse[0]
 
 
 def plot(
